@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h3>Korone Voice Connected</h3>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+
+const params = new URLSearchParams(window.location.search);
+const user = params.get("user") || Math.random().toString(36).substr(2,5);
+const serverId = params.get("server") || "main";
+
+let localStream;
+let peers = {};
+let audioElements = {};
+
+navigator.mediaDevices.getUserMedia({ audio: true })
+.then(stream => {
+    localStream = stream;
+
+    socket.emit("join", { user, serverId });
+
+    socket.on("users", users => {
+        users.forEach(u => {
+            if (u !== user && !peers[u]) {
+                startPeer(u, user < u);
+            }
+        });
+    });
+
+    socket.on("signal", async (data) => {
+        if (!peers[data.from]) startPeer(data.from, false);
+
+        const peer = peers[data.from];
+
+        if (data.signal.type === "offer") {
+            await peer.setRemoteDescription(new RTCSessionDescription(data.signal));
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+
+            socket.emit("signal", {
+                to: data.from,
+                from: user,
+                signal: peer.localDescription,
+                serverId
+            });
+        }
+
+        else if (data.signal.type === "answer") {
+            await peer.setRemoteDescription(new RTCSessionDescription(data.signal));
+        }
+
+        else if (data.signal.candidate) {
+            try {
+                await peer.addIceCandidate(new RTCIceCandidate(data.signal));
+            } catch (e) {}
+        }
+    });
+
+    socket.on("volume", (data) => {
+        const audio = audioElements[data.user];
+        if (audio) {
+            audio.volume = data.volume;
+        }
+    });
+});
+
+function startPeer(target, initiator) {
+    const peer = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+
+    localStream.getTracks().forEach(track => {
+        peer.addTrack(track, localStream);
+    });
+
+    peer.ontrack = (event) => {
+        const audio = new Audio();
+        audio.srcObject = event.streams[0];
+        audio.volume = 1;
+        audio.play();
+
+        audioElements[target] = audio;
+    };
+
+    peer.onicecandidate = (event) => {
+        if (event.candidate) {
+            socket.emit("signal", {
+                to: target,
+                from: user,
+                signal: event.candidate,
+                serverId
+            });
+        }
+    };
+
+    if (initiator) {
+        peer.createOffer().then(offer => {
+            peer.setLocalDescription(offer);
+
+            socket.emit("signal", {
+                to: target,
+                from: user,
+                signal: offer,
+                serverId
+            });
+        });
+    }
+
+    peers[target] = peer;
+}
+</script>
+</body>
+</html>

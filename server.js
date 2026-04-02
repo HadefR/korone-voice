@@ -1,0 +1,49 @@
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(express.json());
+app.use(express.static("public"));
+
+let rooms = {};
+
+io.on("connection", (socket) => {
+    console.log("User connected");
+
+    socket.on("join", ({ user, serverId }) => {
+        socket.join(serverId);
+        socket.user = user;
+        socket.serverId = serverId;
+
+        if (!rooms[serverId]) rooms[serverId] = [];
+        rooms[serverId].push(user);
+
+        io.to(serverId).emit("users", rooms[serverId]);
+    });
+
+    socket.on("signal", (data) => {
+        socket.to(data.serverId).emit("signal", data);
+    });
+
+    socket.on("volume", (data) => {
+        socket.to(data.serverId).emit("volume", data);
+    });
+
+    socket.on("disconnect", () => {
+        let room = rooms[socket.serverId];
+        if (room) {
+            rooms[socket.serverId] = room.filter(u => u !== socket.user);
+            io.to(socket.serverId).emit("users", rooms[socket.serverId]);
+        }
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+
+server.listen(PORT, () => {
+    console.log("Voice server running");
+});

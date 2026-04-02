@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html>
-<body>
+<body style="background:black;color:white;font-family:sans-serif;text-align:center">
+
+<h2 id="status">Click Allow for voice 🎤</h2>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
@@ -10,7 +12,11 @@ const params = new URLSearchParams(window.location.search);
 const user = params.get("user");
 const serverId = params.get("server");
 
+const statusText = document.getElementById("status");
+
 navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+
+    statusText.innerText = "🎤 Voice Connected";
 
     socket.emit("join", { user, serverId });
 
@@ -32,9 +38,11 @@ navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
         }
         volume /= data.length;
 
+        console.log("Volume:", volume);
+
         socket.emit("talking", {
             user,
-            talking: volume > 10,
+            talking: volume > 8,
             serverId
         });
 
@@ -50,6 +58,9 @@ navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
             });
         }
     });
+
+}).catch(err => {
+    statusText.innerText = "❌ Mic blocked — allow permission";
 });
 </script>
 

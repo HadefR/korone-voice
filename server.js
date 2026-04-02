@@ -20,7 +20,11 @@ io.on("connection", (socket) => {
 
     socket.on("talking", (data) => {
         talkingState[data.serverId] = talkingState[data.serverId] || {};
-        talkingState[data.serverId][data.user] = data.talking;
+
+        talkingState[data.serverId][data.user] = {
+            talking: data.talking,
+            lastUpdate: Date.now()
+        };
     });
 
     socket.on("mute", (data) => {
@@ -34,9 +38,22 @@ io.on("connection", (socket) => {
     });
 });
 
-// Roblox polling
 app.get("/status", (req, res) => {
-    res.json(talkingState);
+    const now = Date.now();
+    let clean = {};
+
+    for (let serverId in talkingState) {
+        clean[serverId] = {};
+
+        for (let user in talkingState[serverId]) {
+            let d = talkingState[serverId][user];
+
+            clean[serverId][user] =
+                (now - d.lastUpdate < 300) ? d.talking : false;
+        }
+    }
+
+    res.json(clean);
 });
 
 app.post("/mute", (req, res) => {
@@ -44,8 +61,6 @@ app.post("/mute", (req, res) => {
     res.sendStatus(200);
 });
 
-const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, () => {
+server.listen(process.env.PORT || 3000, () => {
     console.log("Voice server running");
 });

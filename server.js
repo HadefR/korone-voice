@@ -53,6 +53,7 @@ io.on("connection", (socket) => {
     });
 });
 
+// 🔥 ROBLOX POLLING
 app.get("/status", (req, res) => {
     res.json(talkingState);
 });

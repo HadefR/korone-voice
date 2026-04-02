@@ -53,9 +53,16 @@ io.on("connection", (socket) => {
     });
 });
 
-// 🔥 ROBLOX POLLING
+// STATUS (ROBLOX POLLING)
 app.get("/status", (req, res) => {
     res.json(talkingState);
+});
+
+// MUTE (ROBLOX → BROWSER)
+app.post("/mute", (req, res) => {
+    const data = req.body;
+    io.to(data.serverId).emit("mute", data);
+    res.sendStatus(200);
 });
 
 const PORT = process.env.PORT || 3000;

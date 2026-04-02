@@ -20,7 +20,7 @@ navigator.mediaDevices.getUserMedia({ audio: true })
 
     socket.emit("join", { user, serverId });
 
-    // 🎤 TALK DETECTION
+    // TALK DETECTION
     const audioContext = new AudioContext();
     const mic = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();

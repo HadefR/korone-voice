@@ -10,6 +10,7 @@ app.use(express.json());
 app.use(express.static("public"));
 
 let rooms = {};
+let talkingState = {}; // 🔥 store talking state
 
 io.on("connection", (socket) => {
     console.log("User connected");
@@ -33,6 +34,13 @@ io.on("connection", (socket) => {
         socket.to(data.serverId).emit("volume", data);
     });
 
+    socket.on("talking", (data) => {
+        talkingState[data.serverId] = talkingState[data.serverId] || {};
+        talkingState[data.serverId][data.user] = data.talking;
+
+        io.to(data.serverId).emit("talking", data);
+    });
+
     socket.on("disconnect", () => {
         let room = rooms[socket.serverId];
         if (room) {
@@ -42,8 +50,13 @@ io.on("connection", (socket) => {
     });
 });
 
+// 🔥 HTTP endpoint for Roblox polling
+app.get("/status", (req, res) => {
+    res.json(talkingState);
+});
+
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-    console.log("Voice server running");
+    console.log("Voice server running on port " + PORT);
 });

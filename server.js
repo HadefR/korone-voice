@@ -16,6 +16,7 @@ io.on("connection", (socket) => {
     socket.on("join", ({ user, serverId }) => {
         socket.user = user;
         socket.serverId = serverId;
+        console.log("JOIN:", user, serverId);
     });
 
     socket.on("talking", (data) => {
@@ -25,10 +26,8 @@ io.on("connection", (socket) => {
             talking: data.talking,
             lastUpdate: Date.now()
         };
-    });
 
-    socket.on("mute", (data) => {
-        io.emit("mute", data);
+        console.log("TALKING:", data.user, data.talking);
     });
 
     socket.on("disconnect", () => {
@@ -54,11 +53,6 @@ app.get("/status", (req, res) => {
     }
 
     res.json(clean);
-});
-
-app.post("/mute", (req, res) => {
-    io.emit("mute", req.body);
-    res.sendStatus(200);
 });
 
 server.listen(process.env.PORT || 3000, () => {

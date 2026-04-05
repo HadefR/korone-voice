@@ -1,10 +1,3 @@
-<!DOCTYPE html>
-<html>
-<body style="background:black;color:white;text-align:center;font-family:sans-serif">
-
-<h2 id="status">Allow mic 🎤</h2>
-
-<script src="/socket.io/socket.io.js"></script>
 <script>
 const socket = io();
 
@@ -12,11 +5,7 @@ const params = new URLSearchParams(window.location.search);
 const user = params.get("user");
 const serverId = params.get("server");
 
-const statusText = document.getElementById("status");
-
 navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-
-    statusText.innerText = "🎤 Mic Connected";
 
     socket.emit("join", { user, serverId });
 
@@ -29,17 +18,20 @@ navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
 
     const data = new Uint8Array(analyser.frequencyBinCount);
 
-    let lastVolume = 0;
+    let smoothed = 0;
 
     function detectTalking() {
         analyser.getByteFrequencyData(data);
 
         let volume = data.reduce((a,b)=>a+b,0) / data.length;
 
-        // 🔥 REAL TALK DETECTION (CHANGE BASED)
-        let talking = Math.abs(volume - lastVolume) > 2;
+        // 🔥 SMOOTHING
+        smoothed = smoothed * 0.8 + volume * 0.2;
 
-        console.log("Volume:", volume, "Talking:", talking);
+        // 🔥 THRESHOLD (ADJUSTED FOR YOUR MIC)
+        let talking = smoothed > 11;
+
+        console.log("Volume:", volume, "Smooth:", smoothed, "Talking:", talking);
 
         socket.emit("talking", {
             user: user,
@@ -47,18 +39,9 @@ navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
             serverId: serverId
         });
 
-        lastVolume = volume;
-
         requestAnimationFrame(detectTalking);
     }
 
     detectTalking();
-
-}).catch(err => {
-    statusText.innerText = "❌ MIC BLOCKED";
-    console.error(err);
 });
 </script>
-
-</body>
-</html>

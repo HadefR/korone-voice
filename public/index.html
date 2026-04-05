@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html>
-<body style="background:black;color:white;font-family:sans-serif;text-align:center">
+<body style="background:black;color:white;text-align:center;font-family:sans-serif">
 
-<h2 id="status">Click Allow for voice 🎤</h2>
+<h2 id="status">Allow mic 🎤</h2>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
@@ -16,7 +16,7 @@ const statusText = document.getElementById("status");
 
 navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
 
-    statusText.innerText = "🎤 Voice Connected";
+    statusText.innerText = "🎤 Mic Connected";
 
     socket.emit("join", { user, serverId });
 
@@ -29,38 +29,34 @@ navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
 
     const data = new Uint8Array(analyser.frequencyBinCount);
 
+    let lastVolume = 0;
+
     function detectTalking() {
         analyser.getByteFrequencyData(data);
 
-        let volume = 0;
-        for (let i = 0; i < data.length; i++) {
-            volume += data[i];
-        }
-        volume /= data.length;
+        let volume = data.reduce((a,b)=>a+b,0) / data.length;
 
-        console.log("Volume:", volume);
+        // 🔥 REAL TALK DETECTION (CHANGE BASED)
+        let talking = Math.abs(volume - lastVolume) > 2;
+
+        console.log("Volume:", volume, "Talking:", talking);
 
         socket.emit("talking", {
-            user,
-            talking: volume > 8,
-            serverId
+            user: user,
+            talking: talking,
+            serverId: serverId
         });
+
+        lastVolume = volume;
 
         requestAnimationFrame(detectTalking);
     }
 
     detectTalking();
 
-    socket.on("mute", (data) => {
-        if (data.user === user) {
-            stream.getAudioTracks().forEach(track => {
-                track.enabled = !data.muted;
-            });
-        }
-    });
-
 }).catch(err => {
-    statusText.innerText = "❌ Mic blocked — allow permission";
+    statusText.innerText = "❌ MIC BLOCKED";
+    console.error(err);
 });
 </script>
 

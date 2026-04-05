@@ -6,8 +6,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.json());
 app.use(express.static("public"));
+app.use(express.json());
 
 let talkingState = {};
 
@@ -16,6 +16,7 @@ io.on("connection", (socket) => {
     socket.on("join", ({ user, serverId }) => {
         socket.user = user;
         socket.serverId = serverId;
+
         console.log("JOIN:", user, serverId);
     });
 
@@ -27,7 +28,7 @@ io.on("connection", (socket) => {
             lastUpdate: Date.now()
         };
 
-        console.log("TALKING:", data.user, data.talking);
+        console.log("TALK:", data.user, data.talking);
     });
 
     socket.on("disconnect", () => {

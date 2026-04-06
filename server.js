@@ -1,61 +1,86 @@
 const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
+const cors = require("cors");
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
-
-app.use(express.static("public"));
+app.use(cors());
 app.use(express.json());
 
-let talkingState = {};
+// 🔥 DATA STORE
+// structure:
+// {
+//   serverId: {
+//     username: true/false
+//   }
+// }
+const voiceStates = {};
 
-io.on("connection", (socket) => {
+// =========================
+// JOIN (optional tracking)
+// =========================
+app.get("/", (req, res) => {
+  const { user, server } = req.query;
 
-    socket.on("join", ({ user, serverId }) => {
-        socket.user = user;
-        socket.serverId = serverId;
+  if (!user || !server) {
+    return res.send("Missing user/server");
+  }
 
-        console.log("JOIN:", user, serverId);
-    });
+  if (!voiceStates[server]) {
+    voiceStates[server] = {};
+  }
 
-    socket.on("talking", (data) => {
-        talkingState[data.serverId] = talkingState[data.serverId] || {};
+  // default = not talking
+  if (!(user in voiceStates[server])) {
+    voiceStates[server][user] = false;
+  }
 
-        talkingState[data.serverId][data.user] = {
-            talking: data.talking,
-            lastUpdate: Date.now()
-        };
+  console.log(`JOIN: ${user} @ ${server}`);
 
-        console.log("TALK:", data.user, data.talking);
-    });
-
-    socket.on("disconnect", () => {
-        if (socket.serverId && talkingState[socket.serverId]) {
-            delete talkingState[socket.serverId][socket.user];
-        }
-    });
+  res.sendFile(__dirname + "/index.html");
 });
 
+// =========================
+// TALK (from Roblox OR web)
+// =========================
+app.post("/talk", (req, res) => {
+  const { user, talking, serverId } = req.body;
+
+  if (!user || !serverId) {
+    return res.sendStatus(400);
+  }
+
+  if (!voiceStates[serverId]) {
+    voiceStates[serverId] = {};
+  }
+
+  voiceStates[serverId][user] = talking;
+
+  console.log(`TALK: ${user} -> ${talking}`);
+
+  res.sendStatus(200);
+});
+
+// =========================
+// STATUS (for Roblox polling)
+// =========================
 app.get("/status", (req, res) => {
-    const now = Date.now();
-    let clean = {};
-
-    for (let serverId in talkingState) {
-        clean[serverId] = {};
-
-        for (let user in talkingState[serverId]) {
-            let d = talkingState[serverId][user];
-
-            clean[serverId][user] =
-                (now - d.lastUpdate < 300) ? d.talking : false;
-        }
-    }
-
-    res.json(clean);
+  res.json(voiceStates);
 });
 
-server.listen(process.env.PORT || 3000, () => {
-    console.log("Voice server running");
+// =========================
+// CLEANUP (optional)
+// =========================
+setInterval(() => {
+  for (const server in voiceStates) {
+    const users = voiceStates[server];
+
+    for (const user in users) {
+      // optional timeout cleanup later
+    }
+  }
+}, 10000);
+
+// =========================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Voice server running on port", PORT);
 });

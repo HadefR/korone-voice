@@ -1,86 +1,111 @@
+// server.js
 const express = require("express");
 const cors = require("cors");
+const http = require("http");
+const { Server } = require("socket.io");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔥 DATA STORE
-// structure:
-// {
-//   serverId: {
-//     username: true/false
-//   }
-// }
-const voiceStates = {};
-
-// =========================
-// JOIN (optional tracking)
-// =========================
-app.get("/", (req, res) => {
-  const { user, server } = req.query;
-
-  if (!user || !server) {
-    return res.send("Missing user/server");
-  }
-
-  if (!voiceStates[server]) {
-    voiceStates[server] = {};
-  }
-
-  // default = not talking
-  if (!(user in voiceStates[server])) {
-    voiceStates[server][user] = false;
-  }
-
-  console.log(`JOIN: ${user} @ ${server}`);
-
-  res.sendFile(__dirname + "/index.html");
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" }
 });
 
 // =========================
-// TALK (from Roblox OR web)
+// STATE
 // =========================
+// talking states for Roblox polling
+// { serverId: { username: boolean } }
+const voiceStates = {};
+
+// rooms for WebRTC (socket ids)
+const rooms = {}; // { serverId: { username: socketId } }
+
+// =========================
+// HTTP ROUTES
+// =========================
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + "/index.html");
+});
+
 app.post("/talk", (req, res) => {
-  const { user, talking, serverId } = req.body;
+  const { user, talking, serverId } = req.body || {};
+  if (!user || !serverId) return res.sendStatus(400);
 
-  if (!user || !serverId) {
-    return res.sendStatus(400);
-  }
-
-  if (!voiceStates[serverId]) {
-    voiceStates[serverId] = {};
-  }
-
-  voiceStates[serverId][user] = talking;
-
-  console.log(`TALK: ${user} -> ${talking}`);
+  if (!voiceStates[serverId]) voiceStates[serverId] = {};
+  voiceStates[serverId][user] = !!talking;
 
   res.sendStatus(200);
 });
 
-// =========================
-// STATUS (for Roblox polling)
-// =========================
 app.get("/status", (req, res) => {
   res.json(voiceStates);
 });
 
 // =========================
-// CLEANUP (optional)
+// SOCKET.IO (WEBRTC SIGNALING)
 // =========================
-setInterval(() => {
-  for (const server in voiceStates) {
-    const users = voiceStates[server];
+io.on("connection", (socket) => {
+  let current = { user: null, serverId: null };
 
-    for (const user in users) {
-      // optional timeout cleanup later
+  socket.on("join", ({ user, serverId }) => {
+    if (!user || !serverId) return;
+
+    current.user = user;
+    current.serverId = serverId;
+
+    if (!rooms[serverId]) rooms[serverId] = {};
+    rooms[serverId][user] = socket.id;
+
+    // send existing peers to the new client
+    const peers = Object.entries(rooms[serverId])
+      .filter(([u, id]) => u !== user)
+      .map(([u, id]) => ({ user: u, id }));
+
+    socket.emit("peers", peers);
+
+    // notify others
+    socket.to(serverId).emit("peer-joined", { user, id: socket.id });
+
+    socket.join(serverId);
+
+    // init talking state
+    if (!voiceStates[serverId]) voiceStates[serverId] = {};
+    if (!(user in voiceStates[serverId])) {
+      voiceStates[serverId][user] = false;
     }
-  }
-}, 10000);
+  });
+
+  socket.on("signal", ({ to, data }) => {
+    // forward SDP/ICE
+    io.to(to).emit("signal", { from: socket.id, data });
+  });
+
+  socket.on("leave", () => {
+    const { user, serverId } = current;
+    if (!user || !serverId) return;
+
+    if (rooms[serverId]) {
+      delete rooms[serverId][user];
+    }
+    socket.to(serverId).emit("peer-left", { user });
+  });
+
+  socket.on("disconnect", () => {
+    const { user, serverId } = current;
+    if (!user || !serverId) return;
+
+    if (rooms[serverId]) {
+      delete rooms[serverId][user];
+    }
+    socket.to(serverId).emit("peer-left", { user });
+  });
+});
 
 // =========================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Voice server running on port", PORT);
+server.listen(PORT, () => {
+  console.log("Voice server running on", PORT);
 });

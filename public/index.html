@@ -1,66 +1,104 @@
 <!DOCTYPE html>
 <html>
-<body style="background:black;color:white;text-align:center;font-family:sans-serif">
-
-<h2 id="status">Allow mic 🎤</h2>
-
-<!-- 🔥 REQUIRED (THIS FIXES YOUR ERROR) -->
-<script src="/socket.io/socket.io.js"></script>
-
-<script>
-const socket = io();
-
-const params = new URLSearchParams(window.location.search);
-const user = params.get("user");
-const serverId = params.get("server");
-
-const statusText = document.getElementById("status");
-
-navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-
-    statusText.innerText = "🎤 Mic Connected";
-
-    socket.emit("join", { user, serverId });
-
-    const audioContext = new AudioContext();
-    const mic = audioContext.createMediaStreamSource(stream);
-    const analyser = audioContext.createAnalyser();
-
-    analyser.fftSize = 256;
-    mic.connect(analyser);
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-
-    let smoothed = 0;
-
-    function detectTalking() {
-        analyser.getByteFrequencyData(data);
-
-        let volume = data.reduce((a,b)=>a+b,0) / data.length;
-
-        // 🔥 SMOOTHING
-        smoothed = smoothed * 0.8 + volume * 0.2;
-
-        // 🔥 THRESHOLD (based on your mic)
-        let talking = smoothed > 11;
-
-        console.log("Volume:", volume, "Talking:", talking);
-
-        socket.emit("talking", {
-            user: user,
-            talking: talking,
-            serverId: serverId
-        });
-
-        requestAnimationFrame(detectTalking);
+<head>
+  <title>Voice Chat</title>
+  <style>
+    body {
+      background: #111;
+      color: white;
+      font-family: Arial;
+      text-align: center;
+      padding-top: 100px;
     }
 
-    detectTalking();
+    button {
+      padding: 15px 25px;
+      font-size: 18px;
+      background: #00a2ff;
+      border: none;
+      color: white;
+      cursor: pointer;
+      border-radius: 8px;
+    }
 
-}).catch(err => {
-    statusText.innerText = "❌ MIC BLOCKED";
-    console.error(err);
-});
+    button:hover {
+      background: #008ad6;
+    }
+
+    #status {
+      margin-top: 20px;
+      color: #aaa;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>Voice Chat</h1>
+
+<button id="micBtn">Enable Mic</button>
+
+<div id="status">Not Connected</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const user = params.get("user");
+  const server = params.get("server");
+
+  let talking = false;
+  let stream = null;
+
+  const btn = document.getElementById("micBtn");
+  const status = document.getElementById("status");
+
+  async function sendTalk(state) {
+    try {
+      await fetch("/talk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user: user,
+          talking: state,
+          serverId: server
+        })
+      });
+    } catch (e) {}
+  }
+
+  // 🎤 REQUEST MIC
+  btn.onclick = async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      status.innerText = "Mic Enabled";
+      btn.innerText = "Hold Space to Talk";
+
+      setupPushToTalk();
+
+    } catch (e) {
+      status.innerText = "Mic Permission Denied";
+    }
+  };
+
+  // 🎮 PUSH TO TALK (SPACE KEY)
+  function setupPushToTalk() {
+
+    window.addEventListener("keydown", (e) => {
+      if (e.code === "Space" && !talking) {
+        talking = true;
+        status.innerText = "Talking...";
+        sendTalk(true);
+      }
+    });
+
+    window.addEventListener("keyup", (e) => {
+      if (e.code === "Space") {
+        talking = false;
+        status.innerText = "Connected";
+        sendTalk(false);
+      }
+    });
+  }
 </script>
 
 </body>

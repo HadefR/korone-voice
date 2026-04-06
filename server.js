@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
@@ -9,103 +8,79 @@ app.use(cors());
 app.use(express.json());
 
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*" }
+const io = new Server(server, { cors: { origin: "*" } });
+
+// ===== DATA =====
+const codes = {};        // code → { user, serverId }
+const rooms = {};        // serverId → { user: socketId }
+const positions = {};    // serverId → { user: {x,y,z} }
+
+// ===== GENERATE CODE =====
+function generateCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// ===== CREATE CODE =====
+app.get("/create", (req, res) => {
+  const { user, serverId } = req.query;
+
+  const code = generateCode();
+
+  codes[code] = { user, serverId };
+
+  console.log("CODE:", code, user);
+
+  res.json({ code });
 });
 
-// =========================
-// STATE
-// =========================
-// talking states for Roblox polling
-// { serverId: { username: boolean } }
-const voiceStates = {};
+// ===== JOIN WITH CODE =====
+app.post("/join", (req, res) => {
+  const { code } = req.body;
 
-// rooms for WebRTC (socket ids)
-const rooms = {}; // { serverId: { username: socketId } }
+  if (!codes[code]) return res.sendStatus(404);
 
-// =========================
-// HTTP ROUTES
-// =========================
-app.get("/", (req, res) => {
-  res.sendFile(__dirname + "/index.html");
+  res.json(codes[code]);
 });
 
-app.post("/talk", (req, res) => {
-  const { user, talking, serverId } = req.body || {};
-  if (!user || !serverId) return res.sendStatus(400);
+// ===== POSITION UPDATE =====
+app.post("/pos", (req, res) => {
+  const { user, serverId, position } = req.body;
 
-  if (!voiceStates[serverId]) voiceStates[serverId] = {};
-  voiceStates[serverId][user] = !!talking;
+  if (!positions[serverId]) positions[serverId] = {};
+  positions[serverId][user] = position;
 
   res.sendStatus(200);
 });
 
-app.get("/status", (req, res) => {
-  res.json(voiceStates);
+// ===== GET POSITIONS =====
+app.get("/pos", (req, res) => {
+  res.json(positions);
 });
 
-// =========================
-// SOCKET.IO (WEBRTC SIGNALING)
-// =========================
+// ===== SOCKET =====
 io.on("connection", (socket) => {
-  let current = { user: null, serverId: null };
 
   socket.on("join", ({ user, serverId }) => {
-    if (!user || !serverId) return;
-
-    current.user = user;
-    current.serverId = serverId;
 
     if (!rooms[serverId]) rooms[serverId] = {};
     rooms[serverId][user] = socket.id;
 
-    // send existing peers to the new client
-    const peers = Object.entries(rooms[serverId])
-      .filter(([u, id]) => u !== user)
+    const others = Object.entries(rooms[serverId])
+      .filter(([u]) => u !== user)
       .map(([u, id]) => ({ user: u, id }));
 
-    socket.emit("peers", peers);
-
-    // notify others
+    socket.emit("peers", others);
     socket.to(serverId).emit("peer-joined", { user, id: socket.id });
 
     socket.join(serverId);
-
-    // init talking state
-    if (!voiceStates[serverId]) voiceStates[serverId] = {};
-    if (!(user in voiceStates[serverId])) {
-      voiceStates[serverId][user] = false;
-    }
   });
 
   socket.on("signal", ({ to, data }) => {
-    // forward SDP/ICE
     io.to(to).emit("signal", { from: socket.id, data });
   });
 
-  socket.on("leave", () => {
-    const { user, serverId } = current;
-    if (!user || !serverId) return;
-
-    if (rooms[serverId]) {
-      delete rooms[serverId][user];
-    }
-    socket.to(serverId).emit("peer-left", { user });
-  });
-
-  socket.on("disconnect", () => {
-    const { user, serverId } = current;
-    if (!user || !serverId) return;
-
-    if (rooms[serverId]) {
-      delete rooms[serverId][user];
-    }
-    socket.to(serverId).emit("peer-left", { user });
-  });
 });
 
-// =========================
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log("Voice server running on", PORT);
+server.listen(3000, () => {
+  console.log("Server running");
 });

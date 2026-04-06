@@ -1,90 +1,41 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Voice</title>
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <title>Voice Chat</title>
+  <style>
+    body {
+      background: black;
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: Arial;
+    }
+  </style>
 </head>
+<body>
 
-<body style="background:black;color:white;text-align:center;margin-top:100px">
-
-<h2>Connecting to Voice...</h2>
+<h2 id="status">Requesting microphone...</h2>
 
 <script>
+async function startVoice() {
+  try {
+    // 🔥 THIS IS THE IMPORTANT PART
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-const socket = io();
-let peers = {};
-let stream;
+    document.getElementById("status").innerText = "Microphone allowed ✔";
 
-const parts = window.location.pathname.split("/");
-const roomId = parts[2];
-const token = parts[3];
+    // 👉 here you will later connect to your voice server
+    console.log("Mic stream:", stream);
 
-async function start(){
-
-  stream = await navigator.mediaDevices.getUserMedia({ audio:true });
-
-  socket.emit("join", {
-    user: token,
-    serverId: roomId
-  });
-
-  socket.on("peers", list=>{
-    list.forEach(p=>createPeer(p.id,true));
-  });
-
-  socket.on("peer-joined", p=>{
-    createPeer(p.id,false);
-  });
-
-  socket.on("signal", async ({from,data})=>{
-    let pc = peers[from];
-
-    if(data.sdp){
-      await pc.setRemoteDescription(data.sdp);
-      if(data.sdp.type==="offer"){
-        let ans = await pc.createAnswer();
-        await pc.setLocalDescription(ans);
-        socket.emit("signal",{to:from,data:{sdp:pc.localDescription}});
-      }
-    }
-
-    if(data.ice){
-      await pc.addIceCandidate(data.ice);
-    }
-  });
-}
-
-async function createPeer(id, init){
-
-  let pc = new RTCPeerConnection({
-    iceServers:[{urls:"stun:stun.l.google.com:19302"}]
-  });
-
-  stream.getTracks().forEach(t=>pc.addTrack(t,stream));
-
-  pc.ontrack = e=>{
-    let audio = new Audio();
-    audio.srcObject = e.streams[0];
-    audio.autoplay = true;
-  };
-
-  pc.onicecandidate = e=>{
-    if(e.candidate){
-      socket.emit("signal",{to:id,data:{ice:e.candidate}});
-    }
-  };
-
-  if(init){
-    let offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    socket.emit("signal",{to:id,data:{sdp:pc.localDescription}});
+  } catch (err) {
+    document.getElementById("status").innerText = "Microphone denied ❌";
+    console.error(err);
   }
-
-  peers[id]=pc;
 }
 
-start();
-
+startVoice();
 </script>
 
 </body>

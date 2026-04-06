@@ -1,144 +1,98 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <title>Voice</title>
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <style>
-    body { background:#111; color:#fff; font-family:Arial; text-align:center; padding-top:80px; }
-    button { padding:14px 22px; font-size:16px; border-radius:8px; border:none; background:#00a2ff; color:#fff; cursor:pointer; }
-    #status { margin-top:14px; color:#aaa; }
-  </style>
+<title>Voice</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
-<body>
+<body style="background:#111;color:white;text-align:center">
 
-<h2>Voice</h2>
-<button id="enable">Enable Mic</button>
-<div id="status">Not Connected</div>
+<h2>Enter Code</h2>
+<input id="code" placeholder="Code"/>
+<button onclick="join()">Join</button>
 
 <script>
-const params = new URLSearchParams(location.search);
-const user = params.get("user");
-const serverId = params.get("server");
 
-const socket = io(); // same origin
+let socket = io();
+let peers = {};
+let audioEls = {};
+let myStream;
 
-let stream;
-let peers = {}; // socketId -> RTCPeerConnection
-let audioEls = {}; // socketId -> <audio>
-let talking = false;
+async function join(){
 
-// ======== helpers ========
-async function createPeer(toId, isInitiator) {
-  const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  let code = document.getElementById("code").value;
+
+  let res = await fetch("/join", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ code })
   });
 
-  // add local tracks
-  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  let data = await res.json();
 
-  pc.onicecandidate = e => {
-    if (e.candidate) {
-      socket.emit("signal", { to: toId, data: { ice: e.candidate } });
+  const user = data.user;
+  const serverId = data.serverId;
+
+  myStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+
+  socket.emit("join", { user, serverId });
+
+  socket.on("peers", list=>{
+    list.forEach(p=>createPeer(p.id, true));
+  });
+
+  socket.on("peer-joined", p=>{
+    createPeer(p.id, false);
+  });
+
+  socket.on("signal", async ({from,data})=>{
+    let pc = peers[from];
+
+    if(data.sdp){
+      await pc.setRemoteDescription(data.sdp);
+      if(data.sdp.type==="offer"){
+        let ans = await pc.createAnswer();
+        await pc.setLocalDescription(ans);
+        socket.emit("signal",{to:from,data:{sdp:pc.localDescription}});
+      }
+    }
+
+    if(data.ice){
+      await pc.addIceCandidate(data.ice);
+    }
+  });
+
+}
+
+async function createPeer(id, init){
+
+  let pc = new RTCPeerConnection({
+    iceServers:[{urls:"stun:stun.l.google.com:19302"}]
+  });
+
+  myStream.getTracks().forEach(t=>pc.addTrack(t,myStream));
+
+  pc.ontrack = e=>{
+    let audio = new Audio();
+    audio.srcObject = e.streams[0];
+    audio.autoplay = true;
+    audioEls[id] = audio;
+  };
+
+  pc.onicecandidate = e=>{
+    if(e.candidate){
+      socket.emit("signal",{to:id,data:{ice:e.candidate}});
     }
   };
 
-  pc.ontrack = e => {
-    if (!audioEls[toId]) {
-      const audio = document.createElement("audio");
-      audio.autoplay = true;
-      audio.playsInline = true;
-      audio.srcObject = e.streams[0];
-      document.body.appendChild(audio);
-      audioEls[toId] = audio;
-    }
-  };
-
-  if (isInitiator) {
-    const offer = await pc.createOffer();
+  if(init){
+    let offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    socket.emit("signal", { to: toId, data: { sdp: pc.localDescription } });
+    socket.emit("signal",{to:id,data:{sdp:pc.localDescription}});
   }
 
-  peers[toId] = pc;
+  peers[id]=pc;
 }
 
-socket.on("peers", async (list) => {
-  for (const p of list) {
-    await createPeer(p.id, true);
-  }
-});
-
-socket.on("peer-joined", async ({ id }) => {
-  await createPeer(id, false);
-});
-
-socket.on("signal", async ({ from, data }) => {
-  let pc = peers[from];
-  if (!pc) {
-    await createPeer(from, false);
-    pc = peers[from];
-  }
-
-  if (data.sdp) {
-    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-    if (data.sdp.type === "offer") {
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit("signal", { to: from, data: { sdp: pc.localDescription } });
-    }
-  }
-
-  if (data.ice) {
-    try { await pc.addIceCandidate(new RTCIceCandidate(data.ice)); } catch {}
-  }
-});
-
-socket.on("peer-left", ({ user }) => {
-  // optional cleanup
-});
-
-// ======== TALK sync ========
-async function sendTalk(state){
-  try{
-    await fetch("/talk",{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ user, talking: state, serverId })
-    });
-  }catch{}
-}
-
-// ======== UI ========
-const btn = document.getElementById("enable");
-const status = document.getElementById("status");
-
-btn.onclick = async () => {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    status.innerText = "Connected (Hold Space)";
-    btn.style.display = "none";
-
-    socket.emit("join", { user, serverId });
-
-    window.addEventListener("keydown", (e)=>{
-      if(e.code === "Space" && !talking){
-        talking = true;
-        sendTalk(true);
-      }
-    });
-
-    window.addEventListener("keyup", (e)=>{
-      if(e.code === "Space"){
-        talking = false;
-        sendTalk(false);
-      }
-    });
-
-  } catch {
-    status.innerText = "Mic denied";
-  }
-};
 </script>
 
 </body>

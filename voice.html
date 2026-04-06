@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Voice</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+
+<body style="background:black;color:white;text-align:center;margin-top:100px">
+
+<h2>Connecting to Voice...</h2>
+
+<script>
+
+const socket = io();
+let peers = {};
+let stream;
+
+const parts = window.location.pathname.split("/");
+const roomId = parts[2];
+const token = parts[3];
+
+async function start(){
+
+  stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+
+  socket.emit("join", {
+    user: token,
+    serverId: roomId
+  });
+
+  socket.on("peers", list=>{
+    list.forEach(p=>createPeer(p.id,true));
+  });
+
+  socket.on("peer-joined", p=>{
+    createPeer(p.id,false);
+  });
+
+  socket.on("signal", async ({from,data})=>{
+    let pc = peers[from];
+
+    if(data.sdp){
+      await pc.setRemoteDescription(data.sdp);
+      if(data.sdp.type==="offer"){
+        let ans = await pc.createAnswer();
+        await pc.setLocalDescription(ans);
+        socket.emit("signal",{to:from,data:{sdp:pc.localDescription}});
+      }
+    }
+
+    if(data.ice){
+      await pc.addIceCandidate(data.ice);
+    }
+  });
+}
+
+async function createPeer(id, init){
+
+  let pc = new RTCPeerConnection({
+    iceServers:[{urls:"stun:stun.l.google.com:19302"}]
+  });
+
+  stream.getTracks().forEach(t=>pc.addTrack(t,stream));
+
+  pc.ontrack = e=>{
+    let audio = new Audio();
+    audio.srcObject = e.streams[0];
+    audio.autoplay = true;
+  };
+
+  pc.onicecandidate = e=>{
+    if(e.candidate){
+      socket.emit("signal",{to:id,data:{ice:e.candidate}});
+    }
+  };
+
+  if(init){
+    let offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("signal",{to:id,data:{sdp:pc.localDescription}});
+  }
+
+  peers[id]=pc;
+}
+
+start();
+
+</script>
+
+</body>
+</html>

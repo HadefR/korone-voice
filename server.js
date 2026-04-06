@@ -11,21 +11,20 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
 // ===== DATA =====
-const codes = {};        // code → { user, serverId }
-const rooms = {};        // serverId → { user: socketId }
-const positions = {};    // serverId → { user: {x,y,z} }
+const codes = {};
+const rooms = {};
+const positions = {};
 
-// ===== GENERATE CODE =====
-function generateCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
+// ===== FIXED ROOT (IMPORTANT) =====
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + "/index.html");
+});
 
 // ===== CREATE CODE =====
 app.get("/create", (req, res) => {
   const { user, serverId } = req.query;
 
-  const code = generateCode();
-
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
   codes[code] = { user, serverId };
 
   console.log("CODE:", code, user);
@@ -33,7 +32,7 @@ app.get("/create", (req, res) => {
   res.json({ code });
 });
 
-// ===== JOIN WITH CODE =====
+// ===== JOIN =====
 app.post("/join", (req, res) => {
   const { code } = req.body;
 
@@ -42,7 +41,7 @@ app.post("/join", (req, res) => {
   res.json(codes[code]);
 });
 
-// ===== POSITION UPDATE =====
+// ===== POSITION =====
 app.post("/pos", (req, res) => {
   const { user, serverId, position } = req.body;
 
@@ -50,11 +49,6 @@ app.post("/pos", (req, res) => {
   positions[serverId][user] = position;
 
   res.sendStatus(200);
-});
-
-// ===== GET POSITIONS =====
-app.get("/pos", (req, res) => {
-  res.json(positions);
 });
 
 // ===== SOCKET =====
